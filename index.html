@@ -346,7 +346,7 @@ function loadLocal(){
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.10.10-4';
+const APP_VERSION='2026.10.10-5';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -747,7 +747,8 @@ function vSettings(){
   <button class="btn ghost" data-act="switchprog">지금 다음 프로그램으로 교체</button></div>
   <div class="card stack"><h3 style="font-size:16px">사진 영양 자동 계산 (무료)</h3>
     <label class="field"><span>Google Gemini API 키 (무료)</span><input id="api-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AQ... 또는 AIza..." value="${esc(apiKey())}"></label>
-    <div class="row"><button class="btn sm" data-act="savekey">키 저장</button>${apiKey()?'<button class="btn sm ghost" data-act="delkey">키 지우기</button>':''}</div>
+    <div class="row"><button class="btn sm" data-act="savekey">키 저장</button>${apiKey()?'<button class="btn sm ghost" data-act="testkey">키 확인</button><button class="btn sm ghost" data-act="delkey">키 지우기</button>':''}</div>
+    ${S.keyTest?`<p class="small" style="margin:0;overflow-wrap:anywhere">${esc(S.keyTest)}</p>`:''}
     <ol class="rules small" style="margin:0">
       <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> 에 구글 계정으로 로그인</li>
       <li><b>Create API key</b> 를 눌러 키 복사 (카드 등록 없음, 무료)</li>
@@ -810,10 +811,12 @@ document.addEventListener('click',async e=>{
     const v=((document.getElementById('api-key')||{}).value||'').trim();
     // 키 형식은 AIza...(예전)와 AQ....(새 형식) 등이 있어 모양만 느슨하게 확인. 진짜 검증은 첫 분석 때 Google이 함
     if(v.length<20||/\s/.test(v)){toast('Gemini API 키를 빈칸 없이 그대로 붙여넣어주세요');return}
-    try{localStorage.setItem(KEY_STORE,v);localStorage.removeItem(MODEL_STORE);localStorage.removeItem('plate-secret:apikey')}catch(e){}
+    try{localStorage.setItem(KEY_STORE,v);localStorage.removeItem(MODEL_STORE);localStorage.removeItem(AUTH_STORE);localStorage.removeItem('plate-secret:apikey')}catch(e){}
+    S.keyTest='';
     render();toast('API 키를 저장했어요');return;
   }
   if(act==='delkey'){try{localStorage.removeItem(KEY_STORE)}catch(e){}render();toast('API 키를 지웠어요');return}
+  if(act==='testkey'){testKey();return}
   if(act==='export'){exportBackup();return}
   if(act==='reset'){
     if(S.confirm!=='reset'){armConfirm('reset');render();return}
@@ -879,30 +882,59 @@ function finishSession(split,prog,makeup){
 function readDataUrl(file){return new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=()=>res(null);fr.readAsDataURL(file)})}
 function makeThumb(dataUrl){return new Promise(res=>{if(!dataUrl) return res(null);const img=new Image();img.onload=()=>{const s=160/Math.max(img.width,img.height),c=document.createElement('canvas');c.width=Math.round(img.width*Math.min(1,s));c.height=Math.round(img.height*Math.min(1,s));c.getContext('2d').drawImage(img,0,0,c.width,c.height);try{res(c.toDataURL('image/jpeg',.6))}catch(e){res(null)}};img.onerror=()=>res(null);img.src=dataUrl})}
 function resetComposer(){S.analysis=null;S.photo=null;S.photoUrl=null;S.memo='';S.status=''}
-const ERR={offline:'인터넷에 연결되지 않았어요. Wi-Fi나 LTE를 켜고 다시 눌러주세요. 직접 입력은 오프라인에서도 돼요.',bad_key:'Gemini API 키가 올바르지 않아요. 설정에서 키를 확인해주세요.',rate_limited:'무료 사용량을 잠시 다 썼어요. 1분쯤 뒤에(하루 한도라면 내일) 다시 눌러주세요.',overloaded:'Gemini 서버가 바빠요. 잠시 후 다시 눌러주세요.',no_model:'이 키로 쓸 수 있는 Gemini 모델을 찾지 못했어요. 키를 새로 발급해보세요.',image_rejected:'사진을 읽지 못했어요. 다른 사진(JPEG/PNG)을 골라주세요.',invalid_json:'분석 결과를 읽지 못했어요. 다시 눌러주세요.',refused:'이 사진은 분석할 수 없어요. 음식이 잘 보이는 사진으로 다시 시도하세요.'};
+const ERR={offline:'인터넷에 연결되지 않았어요. Wi-Fi나 LTE를 켜고 다시 눌러주세요. 직접 입력은 오프라인에서도 돼요.',blocked:'인터넷은 연결돼 있는데 Google 서버의 응답을 받지 못했어요(Google이 이 키의 요청을 거부했을 수 있어요). 설정 → 키 확인을 눌러 나오는 문구를 확인해주세요.',timeout:'Gemini가 너무 오래 응답하지 않아요. 인터넷 상태를 확인하고 다시 눌러주세요.',bad_key:'Gemini API 키가 올바르지 않아요. 설정에서 키를 확인해주세요.',aq_unsupported:'Google이 이 키(AQ.로 시작하는 새 형식)로 하는 호출을 거부했어요. 설정 → 키 확인으로 다시 확인하고, 안 되면 AI Studio에서 키를 새로 만들어보세요.',quota_zero:'이 키의 무료 사용 한도가 0으로 잡혀 있어요(Google 쪽 계정 설정 문제). AI Studio에서 새 프로젝트로 키를 다시 만들어보세요.',rate_limited:'무료 사용량을 잠시 다 썼어요. 1분쯤 뒤에(하루 한도라면 내일) 다시 눌러주세요.',overloaded:'Gemini 서버가 바빠요. 잠시 후 다시 눌러주세요.',no_model:'이 키로 쓸 수 있는 Gemini 모델을 찾지 못했어요. 키를 새로 발급해보세요.',image_rejected:'사진을 읽지 못했어요. 다른 사진(JPEG/PNG)을 골라주세요.',invalid_json:'분석 결과를 읽지 못했어요. 다시 눌러주세요.',refused:'이 사진은 분석할 수 없어요. 음식이 잘 보이는 사진으로 다시 시도하세요.'};
+const errText=e=>(ERR[e&&e.code]||'분석에 실패했어요. 잠시 후 다시 눌러주세요.')+(e&&e.message?` (Google: ${String(e.message).slice(0,180)})`:'');
 /* Google Gemini 무료 API (aistudio.google.com 에서 카드 등록 없이 발급) */
 const GEM='https://generativelanguage.googleapis.com/v1beta/';
-const MODEL_STORE='plate-secret:gemini-model';
-async function gemFetch(path,body){
+const MODEL_STORE='plate-secret:gemini-model',AUTH_STORE='plate-secret:gemini-auth';
+const lsGet=k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}};
+const lsSet=(k,v)=>{try{v?localStorage.setItem(k,v):localStorage.removeItem(k)}catch(e){}};
+// 한 번의 요청: 시간 제한을 두고, 키 전달 방식은 3가지
+//  header: x-goog-api-key 헤더 / query: 주소의 ?key= / simple: ?key= + text/plain (브라우저 사전 확인 요청 없음)
+async function gemFetchOnce(path,body,ms,mode){
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),ms);
+  const url=GEM+path+(mode!=='header'?(path.includes('?')?'&':'?')+'key='+encodeURIComponent(apiKey()):'');
+  const headers={};
+  if(body) headers['content-type']=mode==='simple'?'text/plain;charset=UTF-8':'application/json';
+  if(mode==='header') headers['x-goog-api-key']=apiKey();
   let resp;
-  try{resp=await fetch(GEM+path,{method:body?'POST':'GET',headers:{'content-type':'application/json','x-goog-api-key':apiKey()},body:body?JSON.stringify(body):undefined})}
-  catch(e){throw {code:'offline'}}
+  try{resp=await fetch(url,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined,signal:ctl.signal})}
+  catch(e){
+    if(ctl.signal.aborted) throw {code:'timeout'};
+    if(navigator.onLine===false) throw {code:'offline'};
+    // 연결은 돼 있는데 실패 = 서버가 거부한 응답을 브라우저가 막은 경우가 대부분 → 다른 방식으로 재시도
+    throw {code:'blocked',auth:true};
+  }
+  finally{clearTimeout(timer)}
   const j=await resp.json().catch(()=>null);
   if(!resp.ok){
-    const err=(j&&j.error)||{},msg=String(err.message||''),st=String(err.status||'');
-    if(resp.status===429||st==='RESOURCE_EXHAUSTED') throw {code:'rate_limited',status:429};
-    if(/api.?key/i.test(msg)||resp.status===401||resp.status===403) throw {code:'bad_key'};
-    if(resp.status===404) throw {code:'no_model',status:404};
-    if(resp.status>=500) throw {code:'overloaded',status:resp.status};
-    if(/image|inline_data/i.test(msg)) throw {code:'image_rejected'};
+    const err=(j&&j.error)||{},msg=String(err.message||`HTTP ${resp.status}`),st=String(err.status||''),all=msg+' '+JSON.stringify(err.details||'');
+    if(/ACCESS_TOKEN_TYPE_UNSUPPORTED|OAuth 2 access token/i.test(all)) throw {code:'aq_unsupported',auth:true,message:msg};
+    if(resp.status===429||st==='RESOURCE_EXHAUSTED') throw {code:/limit:?\s*0\b/i.test(all)?'quota_zero':'rate_limited',status:429,message:msg};
+    if(/api.?key/i.test(msg)||resp.status===401||resp.status===403) throw {code:'bad_key',auth:true,message:msg};
+    if(resp.status===404) throw {code:'no_model',status:404,message:msg};
+    if(resp.status>=500) throw {code:'overloaded',status:resp.status,message:msg};
+    if(/thinking/i.test(msg)) throw {code:'api',thinking:true,status:400,message:msg};
+    if(/image|inline_data/i.test(msg)) throw {code:'image_rejected',message:msg};
     throw {code:'api',message:msg,status:resp.status};
   }
   return j;
 }
+// 인증 오류가 나면 다른 전달 방식으로 한 번 더 시도하고, 되는 방식을 기억한다
+async function gemFetch(path,body,ms){
+  const saved=lsGet(AUTH_STORE),modes=['header','query','simple'].filter(m=>body||m!=='simple').sort((a,b)=>(b===saved)-(a===saved));
+  const errs=[];
+  for(const mode of modes){
+    try{const j=await gemFetchOnce(path,body,ms,mode);lsSet(AUTH_STORE,mode);return j}
+    catch(e){errs.push(e);if(!e.auth&&!(mode==='simple'&&e.code==='api')) throw e}
+  }
+  // 모두 실패: Google이 이유를 알려준 오류를 우선 보여준다
+  throw errs.find(e=>e.message&&e.code!=='api')||errs.find(e=>e.code!=='api')||errs[0];
+}
 // 모델 이름은 자주 바뀌므로, 이 키로 쓸 수 있는 모델 목록에서 최신 Flash 모델을 고른다
 const verOf=n=>{const m=n.match(/gemini-(\d+)(?:\.(\d+))?/);return m?+m[1]+(m[2]?+m[2]/10:0):0};
 async function pickModels(){
-  const j=await gemFetch('models?pageSize=1000');
+  const j=await gemFetch('models?pageSize=1000',null,20000);
   const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent'))
     .map(m=>String(m.name).replace(/^models\//,''))
     .filter(n=>/flash/.test(n)&&!/image|tts|audio|live|embed|thinking|robotics|computer|8b/i.test(n));
@@ -917,32 +949,43 @@ function parseGemini(j){
   const m=text.replace(/```(?:json)?/g,'').match(/\{[\s\S]*\}/);
   try{return JSON.parse(m?m[0]:text)}catch(e){throw {code:'invalid_json'}}
 }
-// 큰 사진은 긴 변 1280px JPEG로 줄여서 보낸다 (LTE 데이터 절약)
-function jpegBase64(dataUrl){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,1280/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/jpeg',.85);res(d.slice(d.indexOf(',')+1))};img.onerror=()=>rej({code:'image_rejected'});img.src=dataUrl})}
-async function askGemini(prompt,dataUrl){
+// 음식 사진 분석은 깊게 생각할 필요가 없어서 생각(thinking)을 줄여 응답을 빠르게
+function speedConfig(m){
+  if(/gemini-2\.5-flash/.test(m)) return {thinkingConfig:{thinkingBudget:0}};
+  if(/gemini-[3-9]/.test(m)) return {thinkingConfig:{thinkingLevel:'low'}};
+  return {};
+}
+// 큰 사진은 긴 변 1024px JPEG로 줄여서 보낸다 (LTE 데이터 절약 · 빠른 응답)
+function jpegBase64(dataUrl){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,1024/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/jpeg',.82);res(d.slice(d.indexOf(',')+1))};img.onerror=()=>rej({code:'image_rejected'});img.src=dataUrl})}
+async function askGemini(prompt,dataUrl,step=()=>{}){
   if(navigator.onLine===false) throw {code:'offline'};
+  step('사진 준비 중');
   const parts=[];
   if(dataUrl) parts.push({inline_data:{mime_type:'image/jpeg',data:await jpegBase64(dataUrl)}});
   parts.push({text:prompt});
-  const body={contents:[{role:'user',parts}],generationConfig:{responseMimeType:'application/json',temperature:0.2}};
-  let saved='';try{saved=localStorage.getItem(MODEL_STORE)||''}catch(e){}
-  let list=saved?[saved]:[],lastErr=null;
+  let saved=lsGet(MODEL_STORE),list=saved?[saved]:[],lastErr=null;
   for(let pass=0;pass<2;pass++){
-    if(!list.length) list=await pickModels();
+    if(!list.length){step('사용할 Gemini 모델 찾는 중');list=await pickModels();if(!list.length) throw {code:'no_model'}}
     for(const m of list){
-      try{
-        const j=await gemFetch(`models/${encodeURIComponent(m)}:generateContent`,body);
-        try{localStorage.setItem(MODEL_STORE,m)}catch(e){}
-        return parseGemini(j);
-      }catch(e){
-        lastErr=e;
-        // 없어진 모델·한도 초과·서버 오류면 다음 모델로
-        if(e.status===404||e.status===429||e.status>=500) continue;
-        throw e;
+      let gc={responseMimeType:'application/json',temperature:0.2,...speedConfig(m)};
+      for(let t=0;t<2;t++){
+        try{
+          step(`${m}로 분석 중`);
+          const j=await gemFetch(`models/${encodeURIComponent(m)}:generateContent`,{contents:[{role:'user',parts}],generationConfig:gc},60000);
+          lsSet(MODEL_STORE,m);
+          return parseGemini(j);
+        }catch(e){
+          lastErr=e;
+          // 생각 설정을 모르는 모델이면 설정을 빼고 한 번 더
+          if(e.thinking&&gc.thinkingConfig){gc={responseMimeType:'application/json',temperature:0.2};continue}
+          break;
+        }
       }
+      // 없어진 모델·한도 초과·서버 오류·시간 초과면 다음 모델로, 그 외(키 오류 등)는 바로 중단
+      if(!(lastErr.status===404||lastErr.status===429||lastErr.status>=500||lastErr.code==='timeout')) throw lastErr;
     }
     if(!saved) break;
-    saved='';list=[];try{localStorage.removeItem(MODEL_STORE)}catch(e){}
+    saved='';list=[];lsSet(MODEL_STORE,'');
   }
   throw lastErr||{code:'no_model'};
 }
@@ -963,16 +1006,30 @@ async function analyze(){
   if(!apiKey()||S.busy) return;
   const memo=(S.memo||'').trim(),hasImg=!!S.photoUrl;
   if(!hasImg&&!memo){S.status='사진을 고르거나 먹은 음식을 적어주세요.';render();return}
-  S.busy=true;S.status='음식을 확인하고 영양성분을 계산하는 중이에요. 10~40초 걸려요.';render();
+  // 진행 단계와 경과 시간을 화면에 계속 보여준다
+  const t0=Date.now();let stepText='분석 준비 중';
+  const show=()=>{S.status=`${stepText}… ${Math.round((Date.now()-t0)/1000)}초`;const el=document.getElementById('an-status');if(el) el.textContent=S.status};
+  S.busy=true;show();render();
+  const tick=setInterval(show,1000);
   try{
-    const r=await askGemini(buildPrompt(memo,hasImg),hasImg?S.photoUrl:null);
+    const r=await askGemini(buildPrompt(memo,hasImg),hasImg?S.photoUrl:null,t=>{stepText=t;show()});
     const foods=(Array.isArray(r&&r.foods)?r.foods:[]).map(f=>({name:String(f.name||'음식'),grams:r1(n0(f.grams)),kcal:Math.round(n0(f.kcal)),protein:r1(n0(f.protein)),carbs:r1(n0(f.carbs)),fat:r1(n0(f.fat))}));
     S.analysis={foods,advice:String(r&&r.advice||''),confidence:String(r&&r.confidence||'')};
     S.status=foods.length?'':'음식을 찾지 못했어요. 메모에 음식을 적고 다시 분석하거나 직접 입력하세요.';
   }catch(e){
-    S.status=ERR[e&&e.code]||('분석에 실패했어요. 잠시 후 다시 눌러주세요.'+(e&&e.message?` (${e.message})`:''));
-  }
+    console.warn('analyze',e);
+    S.status=errText(e);
+  }finally{clearInterval(tick)}
   S.busy=false;render();
+}
+async function testKey(){
+  S.keyTest='확인 중…';render();
+  try{
+    lsSet(MODEL_STORE,'');
+    const list=await pickModels();
+    S.keyTest=list.length?`✅ 키 정상 · 사용할 모델: ${list[0]} (전달 방식: ${({header:'헤더',query:'주소',simple:'주소·간단'})[lsGet(AUTH_STORE)]||'헤더'})`:'⚠️ '+ERR.no_model;
+  }catch(e){S.keyTest='❌ '+errText(e)}
+  render();
 }
 async function saveMeal(){
   const a=S.analysis;if(!a) return;
