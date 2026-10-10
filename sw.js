@@ -1,5 +1,5 @@
 // 도원이의 운동일지 서비스 워커: 앱 화면은 오프라인에서도 열리고, 새 버전은 다음 실행 때 반영된다.
-const VERSION = 'plate-v2';
+const VERSION = 'plate-v3';
 const SHELL = [
   './',
   './index.html',
@@ -30,10 +30,10 @@ self.addEventListener('fetch', e => {
   const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (url.origin !== location.origin && !isFont) return;
 
-  // 앱 화면: 네트워크 우선, 끊기면 캐시
+  // 앱 화면: 항상 서버의 최신 버전 (브라우저 캐시도 건너뜀), 끊기면 저장해둔 화면
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-store' })
         .then(res => { const copy = res.clone(); caches.open(VERSION).then(c => c.put('./index.html', copy)); return res; })
         .catch(() => caches.match('./index.html'))
     );
