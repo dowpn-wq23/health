@@ -346,7 +346,7 @@ function loadLocal(){
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.10.10-6';
+const APP_VERSION='2026.10.10-7';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -678,9 +678,9 @@ function composer(){
   h+=S.photoUrl?`<img class="preview" src="${S.photoUrl}" alt="선택한 음식 사진"><button class="btn sm ghost" data-act="clearphoto">사진 지우기</button>`
     :`<label class="photo-btn" for="meal-photo">📷 음식 사진 찍기 · 앨범에서 선택</label>`;
   h+=`<input type="file" id="meal-photo" accept="image/*" hidden>`;
-  h+=`<textarea id="meal-memo" placeholder="양이나 재료를 적으면 더 정확해요. 예: 현미밥 반 공기, 닭가슴살 1팩(100g), 계란 2개">${esc(S.memo||'')}</textarea>`;
+  h+=`<textarea id="meal-memo" enterkeyhint="done" placeholder="먹은 음식을 적으면 자동으로 계산돼요. 예: 까르보불닭볶음면 컵라면 1개, 참치마요 삼각김밥, 바나나우유 라이트">${esc(S.memo||'')}</textarea>`;
   if(!canAsk) h+=`<p class="small muted" style="margin:0">설정에서 무료 Gemini 키를 한 번만 넣으면 사진을 찍는 즉시 탄수화물·단백질·지방이 자동 계산돼요. 지금은 직접 입력만 됩니다. <button class="btn sm ghost" data-act="tab" data-k="settings" style="margin-top:6px">무료 키 넣기</button></p>`;
-  else h+=`<p class="small muted" style="margin:0">사진을 넣으면 자동으로 계산돼요. 양을 적고 다시 분석하면 더 정확해요.</p>`;
+  else h+=`<p class="small muted" style="margin:0">사진을 넣거나, 먹은 음식을 적고 엔터(또는 키보드 닫기)를 누르면 자동으로 계산돼요. 제품명·개수·양을 적을수록 정확해요.</p>`;
   h+=`<div class="row">${canAsk?`<button class="btn" style="flex:2" data-act="analyze" ${S.busy?'disabled':''}>${S.busy?'분석 중…':S.analysis&&S.photoUrl?'다시 분석':'영양 분석'}</button>`:''}<button class="btn ghost" style="flex:1" data-act="manual">직접 입력</button></div>`;
   if(S.status) h+=`<p class="small muted" style="margin:0" id="an-status">${esc(S.status)}</p>`;
   if(a){
@@ -841,10 +841,16 @@ document.addEventListener('input',e=>{
   if(el.dataset.food!=null){S.analysis.foods[+el.dataset.food][el.dataset.f]=el.value;const t=document.getElementById('an-total');if(t) t.innerHTML=totalsText(sumFoods(S.analysis.foods));return}
   if(el.id==='meal-memo'){S.memo=el.value;return}
 });
+// 메모 칸에서 엔터 = 입력 끝 (키보드를 닫으면 change 이벤트로 자동 분석). 한글 조합 중 엔터는 무시
+document.addEventListener('keydown',e=>{
+  const el=e.target;
+  if(el.id==='meal-memo'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();el.blur()}
+});
 document.addEventListener('change',async e=>{
   const el=e.target;
   if(el.dataset.chk){S.draft.date=today();S.draft.checks[el.dataset.chk]=el.checked;saveDraft();el.nextElementSibling.classList.toggle('on',el.checked);return}
   if(el.id==='meal-label'){S.mealLabel=el.value;return}
+  if(el.id==='meal-memo'){S.memo=el.value;autoAnalyze();return}
   if(el.id==='import-file'&&el.files&&el.files[0]){importBackup(el.files[0]);el.value='';return}
   if(el.id==='meal-photo'&&el.files&&el.files[0]){
     S.photo=el.files[0];S.photoUrl=await readDataUrl(S.photo);el.value='';
@@ -1035,7 +1041,7 @@ function buildPrompt(memo,hasImg){
   const p=S.profile,t=targets(),e=dayTotals(S.mealDate),g=GOALS[p.goal].name;
   return `역할: 한국 스포츠 영양사.
 작업: ${hasImg?'첨부한 음식 사진':'아래 설명'}의 음식을 하나씩 식별하고, 각 음식의 섭취량(g)을 추정해 칼로리(kcal)와 단백질·탄수화물·지방(g)을 계산하세요.
-기준값: 식품의약품안전처 식품영양성분 데이터베이스 같은 공신력 있는 100g당 영양성분을 기준으로, 추정 섭취량에 비례해 계산하세요. 프랜차이즈·포장 식품은 제조사 공개 영양정보를 기준으로 하세요. 소스·드레싱·조리용 기름도 보이면 따로 넣으세요.
+기준값: 식품의약품안전처 식품영양성분 데이터베이스 같은 공신력 있는 100g당 영양성분을 기준으로, 추정 섭취량에 비례해 계산하세요. 프랜차이즈·편의점·포장 식품(컵라면, 삼각김밥, 우유 등)은 상품명을 그대로 인식해 제조사 영양성분표의 1개(1포장) 기준 값을 쓰세요. 개수나 양이 없으면 1개 또는 1인분으로 보세요. 음식마다 한 줄씩 나누세요. 소스·드레싱·조리용 기름도 보이면 따로 넣으세요.
 사용자 메모 (양·재료 정보이며 사진보다 우선): ${memo||'없음'}
 사용자: 체중 ${p.weight}kg, 목표 ${g}. 하루 목표 ${t.kcal}kcal, 단백질 ${t.protein}g(최소 ${t.pmin}g = 체중×1.5), 탄수화물 ${t.carbs}g, 지방 ${t.fat}g.
 이 식사 전까지 오늘 섭취: ${Math.round(e.kcal)}kcal, 단백질 ${r1(e.p)}g, 탄수화물 ${r1(e.c)}g, 지방 ${r1(e.f)}g.
@@ -1051,7 +1057,7 @@ async function analyze(){
   // 진행 단계와 경과 시간을 화면에 계속 보여준다
   const t0=Date.now();let stepText='분석 준비 중';
   const show=()=>{S.status=`${stepText}… ${Math.round((Date.now()-t0)/1000)}초`;const el=document.getElementById('an-status');if(el) el.textContent=S.status};
-  S.busy=true;show();render();
+  S.busy=true;S.autoPending=false;S.lastAuto=autoKey();show();render();
   const tick=setInterval(show,1000);
   try{
     const r=await askGemini(buildPrompt(memo,hasImg),hasImg?S.photoUrl:null,t=>{stepText=t;show()});
@@ -1063,6 +1069,18 @@ async function analyze(){
     S.status=errText(e);
   }finally{clearInterval(tick)}
   S.busy=false;render();
+  // 분석하는 동안 메모를 또 고쳤으면 한 번 더
+  if(S.autoPending&&autoKey()!==S.lastAuto) analyze();
+}
+// 같은 사진·메모는 다시 분석하지 않는다
+const autoKey=()=>(S.memo||'').trim()+'|'+(S.photoUrl?S.photoUrl.length:0);
+function autoAnalyze(){
+  if(!apiKey()) return;
+  const memo=(S.memo||'').trim();
+  if(!memo&&!S.photoUrl) return;
+  if(S.busy){S.autoPending=true;return}
+  if(S.analysis&&autoKey()===S.lastAuto) return;
+  analyze();
 }
 async function testKey(){
   S.keyTest='확인 중…';render();
