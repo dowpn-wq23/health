@@ -1,5 +1,5 @@
-// 플레이트 서비스 워커: 앱 화면은 오프라인에서도 열리고, 새 버전은 다음 실행 때 반영된다.
-const VERSION = 'plate-v1';
+// 도원이의 운동일지 서비스 워커: 앱 화면은 오프라인에서도 열리고, 새 버전은 다음 실행 때 반영된다.
+const VERSION = 'plate-v2';
 const SHELL = [
   './',
   './index.html',
