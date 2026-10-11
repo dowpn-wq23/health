@@ -105,6 +105,10 @@ h1,h2,h3,h4{margin:0;text-wrap:balance}
 .ex-head{display:flex;gap:10px;align-items:flex-start}
 .ex-idx{font-family:var(--f-num);font-size:13px;color:var(--muted);padding-top:2px;min-width:18px}
 .ex-head h4{font-size:16px;font-weight:700;line-height:1.35;flex:1}
+.ex-rm{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;width:30px;height:30px;font-size:15px;line-height:1;cursor:pointer;flex:none}
+.addex{border:1.5px dashed var(--line);background:var(--surface-2)}
+.removed{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.removed button{appearance:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 10px;font-size:13px;cursor:pointer}
 .role{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;background:var(--chip)}
 .role.pre{background:color-mix(in srgb,var(--p-blue) 16%,var(--surface));color:var(--p-blue)}
 .role.arm{background:color-mix(in srgb,var(--p-red) 15%,var(--surface));color:var(--p-red)}
@@ -333,7 +337,7 @@ async function dbGet(key){
 /* ---------- 상태 ---------- */
 const defaultProfile=()=>({weight:70,height:175,age:30,sex:'m',activity:1.55,goal:'lean',pmult:2.0,cycleWeeks:6,progStart:today(),progBase:0,machineStep:5,since:today(),configured:false,kcalAdj:0,adjAt:null});
 const KEYS=['profile','records','log','weights','skips'];
-const S={tab:'today',profile:defaultProfile(),records:{},log:[],weights:[],skips:[],meals:{},mealDate:today(),draft:{date:today(),vals:{},checks:{}},forceTrain:false,confirm:null,photo:null,photoUrl:null,analysis:null,busy:false,status:''};
+const S={tab:'today',profile:defaultProfile(),records:{},log:[],weights:[],skips:[],meals:{},mealDate:today(),draft:{date:today(),vals:{},checks:{}},forceTrain:false,confirm:null,photo:null,photoUrl:null,analysis:null,busy:false,status:'',customEx:{},adding:false};
 
 function loadLocal(){
   S.profile=Object.assign(defaultProfile(),LS.get('profile')||{});
@@ -341,12 +345,13 @@ function loadLocal(){
   S.log=LS.get('log')||[];
   S.weights=LS.get('weights')||[];
   S.skips=LS.get('skips')||[];
+  S.customEx=LS.get('customEx')||{};Object.assign(EX,S.customEx);
   const d=LS.get('draft');
   if(d&&d.date===today()) S.draft=Object.assign({vals:{},checks:{}},d);
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.10.10-9';
+const APP_VERSION='2026.10.11-1';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -372,6 +377,23 @@ async function ensureMeals(date){
 }
 function saveDraft(){LS.set('draft',S.draft)}
 // 임시 입력값: vals[id].sets[k]={w,r} (예전 형식 {w,r}은 1세트로 읽음)
+/* 오늘 운동 구성 바꾸기: 기본 루틴에서 뺀 운동(removed)·더한 운동(added)을 오늘 임시 입력값에 저장 */
+const planKey=(split,prog)=>prog+'-'+split;
+function effectivePlan(split,prog){
+  const base=PROGRAMS[prog].days[split],c=S.draft.custom;
+  if(!c||c.key!==planKey(split,prog)) return base;
+  return [...base.filter(([id])=>!c.removed.includes(id)),...c.added.filter(([id])=>EX[id])];
+}
+function customFor(split,prog){
+  const k=planKey(split,prog);
+  if(!S.draft.custom||S.draft.custom.key!==k) S.draft.custom={key:k,removed:[],added:[]};
+  return S.draft.custom;
+}
+// 기본 루틴에 있는 운동이면 그 역할·세트 수를 그대로 쓴다
+function defaultsFor(id){
+  for(const P of PROGRAMS) for(const s of ORDER) for(const [x,role,sets] of P.days[s]) if(x===id) return [role==='pre'?'main':role,sets];
+  return ['main',3];
+}
 function draftSet(id,k){
   const v=S.draft.vals[id]||{};
   if(v.sets) return v.sets[k]||{};
@@ -585,7 +607,8 @@ function checkItem(key,text){
   return `<li><label><input type="checkbox" data-chk="${key}" ${on?'checked':''}><span class="${on?'on':''}">${esc(text)}</span></label></li>`;
 }
 function sessionView(split,prog,st){
-  const sp=SPLITS[split],plan=PROGRAMS[prog].days[split];
+  S.curPlan={split,prog};
+  const sp=SPLITS[split],plan=effectivePlan(split,prog);
   let warn='';
   const last=[...S.log].reverse().find(e=>e.split===split);
   if(last&&!S.editing){const g=diffDays(last.date,today());if(g<3) warn=`<div class="notice">마지막 ${sp.name} 운동 후 ${g*24}시간 정도 지났어요. 72시간 회복을 권장합니다. 가능하면 내일로 미루세요.</div>`}
@@ -596,17 +619,41 @@ function sessionView(split,prog,st){
   const deload=pi.deload?`<div class="notice info">디로드 주간 (${pi.week}/${S.profile.cycleWeeks}주): 최고 기록 무게의 70%로 세트를 하나씩 줄여서 합니다. 이번 주는 기록을 갱신하지 않아요. ${label(pi.nextSwitch)}부터 ${PROGRAMS[(pi.idx+1)%PROGRAMS.length].name}를 시작합니다.</div>`:'';
   let i=0;
   const exs=plan.map(([id,role,sets])=>exCard(id,role,sets,++i)).join('');
+  const c=S.draft.custom&&S.draft.custom.key===planKey(split,prog)?S.draft.custom:null;
+  const removed=c&&c.removed.length?`<div class="removed small"><span class="muted">빠진 운동:</span>${c.removed.map(id=>`<button data-act="unrmex" data-id="${id}" data-split="${split}" data-prog="${prog}">↺ ${esc(EX[id].n)}</button>`).join('')}</div>`:'';
   const conf=S.confirm==='finish';
   return `<section class="stack">
     <div class="session-head"><div class="plate" style="--c:${sp.c}"></div><div><div class="eyebrow">${st.kind==='makeup'?'보충 운동':'오늘의 운동'} · ${PROGRAMS[prog].name}</div><h2>${sp.name}<small>${sp.sub}</small></h2></div></div>
     ${makeup}${deload}${warn}
     <div class="sec-title"><h3>본운동</h3><span class="small muted">선피로 → 메인 → 팔 → 복근</span></div>
     ${exs}
+    ${removed}
+    ${addPanel(split,prog,plan)}
     <p class="small muted" style="margin:0">세트마다 무게와 횟수를 적으세요. 빈칸의 흐린 숫자는 그 세트의 최고 기록이에요. 어느 세트든 기록을 넘기면 신기록으로 저장되고, 못 넘기면 이전 기록이 유지됩니다.</p>
     <button class="btn" data-act="finish" data-split="${split}" data-prog="${prog}" data-makeup="${st.kind==='makeup'?1:0}">${conf?'한 번 더 누르면 저장됩니다':editing?'수정 저장':'운동 완료 · 기록 저장'}</button>
     ${editing?'<button class="btn ghost" data-act="canceledit">수정 취소 · 원래 기록 유지</button>'
       :'<button class="btn ghost" data-act="skip">오늘은 못 해요 (회식 등) · 내일로 미루기</button>'}
   </section>`;
+}
+function addPanel(split,prog,plan){
+  if(!S.adding) return `<button class="btn ghost addex" data-act="openadd">+ 운동 추가</button>`;
+  const inPlan=new Set(plan.map(([id])=>id)),seen=new Set(),pick=S.addPick||'';
+  // 오늘 부위의 운동을 먼저, 그다음 다른 부위, 직접 추가했던 운동 순서
+  const groups=[split,...ORDER.filter(x=>x!==split)].map(sk=>{
+    const ids=[];PROGRAMS.forEach(P=>P.days[sk].forEach(([id])=>{if(!inPlan.has(id)&&!seen.has(id)){seen.add(id);ids.push(id)}}));
+    return ids.length?`<optgroup label="${SPLITS[sk].name}">${ids.map(id=>`<option value="${id}" ${pick===id?'selected':''}>${esc(EX[id].n)}</option>`).join('')}</optgroup>`:'';
+  }).join('');
+  const mine=Object.keys(S.customEx||{}).filter(id=>!inPlan.has(id));
+  const mineG=mine.length?`<optgroup label="직접 추가한 운동">${mine.map(id=>`<option value="${id}" ${pick===id?'selected':''}>${esc(EX[id].n)}</option>`).join('')}</optgroup>`:'';
+  return `<div class="card stack addex"><div class="sec-title"><h3>운동 추가</h3><span class="small muted">오늘 운동에만 적용</span></div>
+    <label class="field"><span>운동</span><select id="add-ex">${`<option value="">선택하세요</option>`}${groups}${mineG}<option value="__new" ${pick==='__new'?'selected':''}>+ 목록에 없는 운동 직접 입력</option></select></label>
+    ${pick==='__new'?`<div class="form">
+      <label class="field full"><span>운동 이름</span><input id="add-name" type="text" placeholder="예: 펜듈럼 스쿼트" value="${esc(S.addName||'')}"></label>
+      <label class="field"><span>기구</span><select id="add-eq">${[['mc','머신·케이블'],['db','덤벨'],['bb','바벨'],['sm','스미스'],['body','맨몸']].map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
+    </div>`:''}
+    <label class="field"><span>세트 수</span><select id="add-sets">${[1,2,3,4,5,6].map(n=>`<option ${n===3?'selected':''}>${n}</option>`).join('')}</select></label>
+    <div class="row"><button class="btn sm" data-act="addex" data-split="${split}" data-prog="${prog}">추가</button><button class="btn sm ghost" data-act="closeadd">닫기</button></div>
+  </div>`;
 }
 function exCard(id,role,sets,i){
   const ex=EX[id],rec=S.records[id]||{};
@@ -625,7 +672,7 @@ function exCard(id,role,sets,i){
   const stall=(rec.stall||0)>=2&&rec.best?`<div class="stall">${rec.stall}회 연속 갱신 실패 → 이전 기록 ${fmt(ex,rec.best)}으로 반복하세요.</div>`:'';
   const perSet=setBestsText(ex,rec);
   return `<article class="ex">
-    <div class="ex-head"><span class="ex-idx">${i}</span><h4>${esc(ex.n)}</h4><span class="role ${role}">${ROLE[role]}</span></div>
+    <div class="ex-head"><span class="ex-idx">${i}</span><h4>${esc(ex.n)}</h4><span class="role ${role}">${ROLE[role]}</span><button class="ex-rm" data-act="rmex" data-id="${id}" aria-label="${esc(ex.n)} 빼기">✕</button></div>
     <div class="ex-meta">${EQ[ex.eq]} · ${sets}세트 · ${reps}${rest}${ex.arm||COMPOUND.has(id)?' · 12회 성공 시 증량':''}</div>
     <div class="tgt"><div><small>최고 기록</small><b>${fmt(ex,rec.best)}</b>${perSet?`<span class="setbest">${perSet}</span>`:''}</div><div class="goal"><small>${isDeload()?'디로드':'오늘 목표'}</small><b>${target(id)}</b></div></div>
     ${stall}<div class="sets">${rows.join('')}</div>
@@ -807,6 +854,30 @@ document.addEventListener('click',async e=>{
   if(act==='applyadj'){const t=weightTrend();S.profile.kcalAdj=(S.profile.kcalAdj||0)+Number(b.dataset.d);S.profile.adjAt=t?t.last.date:today();persist('profile',S.profile);render();toast(`목표 칼로리 ${targets().kcal}kcal로 조정했어요`);return}
   if(act==='dismissadj'){const t=weightTrend();S.profile.adjAt=t?t.last.date:today();persist('profile',S.profile);render();return}
   if(act==='resetadj'){S.profile.kcalAdj=0;persist('profile',S.profile);render();return}
+  if(act==='rmex'){
+    const {split,prog}=S.curPlan,c=customFor(split,prog),id=b.dataset.id,ai=c.added.findIndex(([x])=>x===id);
+    if(ai>=0) c.added.splice(ai,1);else if(!c.removed.includes(id)) c.removed.push(id);
+    saveDraft();render();toast(`${EX[id].n} 뺐어요`);return;
+  }
+  if(act==='unrmex'){const c=customFor(b.dataset.split,+b.dataset.prog);c.removed=c.removed.filter(x=>x!==b.dataset.id);saveDraft();render();return}
+  if(act==='openadd'){S.adding=true;S.addPick='';S.addName='';render();return}
+  if(act==='closeadd'){S.adding=false;render();return}
+  if(act==='addex'){
+    const sel=(document.getElementById('add-ex')||{}).value||'',n=+((document.getElementById('add-sets')||{}).value||3);
+    let id=sel;
+    if(!sel){toast('추가할 운동을 고르세요');return}
+    if(sel==='__new'){
+      const name=((document.getElementById('add-name')||{}).value||'').trim(),eq=(document.getElementById('add-eq')||{}).value||'mc';
+      if(!name){toast('운동 이름을 적어주세요');return}
+      id='c_'+Date.now().toString(36);
+      S.customEx[id]={n:name,eq,type:eq==='body'?'reps':'w',tip:'직접 추가한 운동'};EX[id]=S.customEx[id];
+      persist('customEx',S.customEx);
+    }
+    const split=b.dataset.split,prog=+b.dataset.prog,c=customFor(split,prog);
+    if(c.removed.includes(id)) c.removed=c.removed.filter(x=>x!==id);
+    else c.added.push([id,defaultsFor(id)[0],n]);
+    S.adding=false;saveDraft();render();toast(`${EX[id].n} 추가했어요`);return;
+  }
   if(act==='editdone'){startEdit();window.scrollTo(0,0);return}
   if(act==='canceledit'){cancelEdit();window.scrollTo(0,0);return}
   if(act==='finish'){
@@ -862,6 +933,7 @@ document.addEventListener('input',e=>{
   }
   if(el.dataset.food!=null){S.analysis.foods[+el.dataset.food][el.dataset.f]=el.value;const t=document.getElementById('an-total');if(t) t.innerHTML=totalsText(sumFoods(S.analysis.foods));return}
   if(el.id==='meal-memo'){S.memo=el.value;return}
+  if(el.id==='add-name'){S.addName=el.value;return}
 });
 // 메모 칸에서 엔터 = 입력 끝 (키보드를 닫으면 change 이벤트로 자동 분석). 한글 조합 중 엔터는 무시
 document.addEventListener('keydown',e=>{
@@ -872,6 +944,7 @@ document.addEventListener('change',async e=>{
   const el=e.target;
   if(el.dataset.chk){S.draft.date=today();S.draft.checks[el.dataset.chk]=el.checked;saveDraft();el.nextElementSibling.classList.toggle('on',el.checked);return}
   if(el.id==='meal-label'){S.mealLabel=el.value;return}
+  if(el.id==='add-ex'){S.addPick=el.value;if((el.value==='__new')!==!!document.getElementById('add-name')) render();return}
   if(el.id==='meal-memo'){S.memo=el.value;autoAnalyze();return}
   if(el.dataset.provider){lsSet(PROVIDER,el.dataset.provider==='openai'?'openai':'');S.keyTest='';render();return}
   if(el.id==='import-file'&&el.files&&el.files[0]){importBackup(el.files[0]);el.value='';return}
@@ -895,8 +968,9 @@ document.addEventListener('change',async e=>{
 function finishSession(split,prog,makeup){
   const d=today(),results=[],deload=isDeload(),before={};
   // 나중에 이 기록을 수정할 수 있도록, 바뀌기 전 최고 기록을 같이 저장
-  for(const [id] of PROGRAMS[prog].days[split]) before[id]=S.records[id]?JSON.parse(JSON.stringify(S.records[id])):null;
-  for(const [id,,n] of PROGRAMS[prog].days[split]){
+  const plan=effectivePlan(split,prog);
+  for(const [id] of plan) before[id]=S.records[id]?JSON.parse(JSON.stringify(S.records[id])):null;
+  for(const [id,,n] of plan){
     const ex=EX[id],cnt=deload?Math.max(1,n-1):n,sets=[];
     for(let k=0;k<cnt;k++){
       const v=draftSet(id,k),w=parseFloat(v.w),r=parseInt(v.r,10);
@@ -908,7 +982,8 @@ function finishSession(split,prog,makeup){
     else results.push(evaluate(id,sets,d));
   }
   const wasEditing=!!S.editing;S.editing=null;
-  S.log.push({date:d,split,prog,makeup,deload,results,before});
+  S.log.push({date:d,split,prog,makeup,deload,results,before,plan:plan.map(x=>[...x])});
+  S.adding=false;
   if(S.log.length>400) S.log=S.log.slice(-400);
   S.draft={date:d,vals:{},checks:{}};saveDraft();
   S.forceTrain=false;
@@ -934,9 +1009,14 @@ function startEdit(){
   S.editing={entry,idx,records:JSON.parse(JSON.stringify(S.records)),draft:S.draft};
   S.log.splice(idx,1);
   if(entry.before){for(const [id,v] of Object.entries(entry.before)){if(v) S.records[id]=JSON.parse(JSON.stringify(v));else delete S.records[id]}}
-  else rebuildRecords(PROGRAMS[entry.prog].days[entry.split].map(([id])=>id),S.log);
+  // 그날의 운동 구성 (예전 기록은 기본 루틴 + 기록된 운동)
+  const base=PROGRAMS[entry.prog].days[entry.split];
+  const plan=entry.plan||[...base,...entry.results.filter(r=>!base.some(([id])=>id===r.id)).map(r=>[r.id,...defaultsFor(r.id)])];
+  if(!entry.before) rebuildRecords(plan.map(([id])=>id),S.log);
   // 저장했던 세트 값을 입력 칸에 다시 채움
-  S.draft={date:today(),vals:{},checks:{}};
+  S.draft={date:today(),vals:{},checks:{},custom:{key:planKey(entry.split,entry.prog),
+    removed:base.map(([id])=>id).filter(id=>!plan.some(([x])=>x===id)),
+    added:plan.filter(([id])=>!base.some(([x])=>x===id))}};
   for(const r of entry.results){
     const sets=r.sets||[{w:r.w,r:r.r}];
     S.draft.vals[r.id]={sets:sets.map(x=>x?{w:EX[r.id].type==='w'?String(x.w):'',r:String(x.r)}:{})};
@@ -945,7 +1025,7 @@ function startEdit(){
 }
 function cancelEdit(){
   const ed=S.editing;if(!ed) return;
-  S.log.splice(ed.idx,0,ed.entry);S.records=ed.records;S.draft=ed.draft;S.editing=null;S.confirm=null;
+  S.log.splice(ed.idx,0,ed.entry);S.records=ed.records;S.draft=ed.draft;S.editing=null;S.confirm=null;S.adding=false;
   render();toast('원래 기록을 유지했어요');
 }
 
