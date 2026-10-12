@@ -4,13 +4,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="theme-color" content="#EDF0F3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0D1116" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0E1A33">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도원이의 운동일지">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000;overscroll-behavior-y:none}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#0E1A33;color:#EAF0FA;overscroll-behavior-y:none}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
@@ -18,30 +17,16 @@
 /* Layout: one-column phone app — sticky header, scrolling content (max 560px), fixed bottom tab bar.
    Split colors borrow competition plate colors: 가슴=red(25), 등=blue(20), 어깨+하체=yellow(15). */
 :root{
-  --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F5F7F9; --ink:#121820; --muted:#5A6572; --line:#D8DEE5;
-  --p-red:#CF3A2E; --p-blue:#1E56C8; --p-yellow:#C99700; --p-green:#23935A;
-  --ok:#1C8550; --warn:#A86C00; --bad:#BF3A2F;
-  --btn:#121820; --btn-ink:#FFFFFF; --chip:#E4E8ED;
+  /* 남색 테마 (라이트·다크 모드 상관없이 항상) */
+  color-scheme:dark;
+  --bg:#0E1A33; --surface:#16264A; --surface-2:#1D3059; --ink:#EAF0FA; --muted:#9DB0CF; --line:#2A4170;
+  --p-red:#F26B5B; --p-blue:#6E9BFF; --p-yellow:#F0C04A; --p-green:#4CC98A;
+  --ok:#4CC98A; --warn:#F0A940; --bad:#F26B5B;
+  --btn:#4F7FFF; --btn-ink:#FFFFFF; --chip:#22385F;
   --f-display:'Black Han Sans','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   --f-body:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
   --f-num:'IBM Plex Mono',ui-monospace,'SF Mono',monospace;
   --r:14px;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --bg:#0D1116; --surface:#161B22; --surface-2:#1C222B; --ink:#E7EBF0; --muted:#8C97A4; --line:#29313B;
-    --p-red:#F0604F; --p-blue:#5D8DFF; --p-yellow:#E9B930; --p-green:#45C07E;
-    --ok:#45C07E; --warn:#E7A93A; --bad:#F0604F;
-    --btn:#E7EBF0; --btn-ink:#0D1116; --chip:#232A34;
-  }
-}
-:root[data-theme="dark"]{
-  color-scheme:dark;
-  --bg:#0D1116; --surface:#161B22; --surface-2:#1C222B; --ink:#E7EBF0; --muted:#8C97A4; --line:#29313B;
-  --p-red:#F0604F; --p-blue:#5D8DFF; --p-yellow:#E9B930; --p-green:#45C07E;
-  --ok:#45C07E; --warn:#E7A93A; --bad:#F0604F;
-  --btn:#E7EBF0; --btn-ink:#0D1116; --chip:#232A34;
 }
 *{box-sizing:border-box}
 html,body{background:var(--bg)}
@@ -123,6 +108,8 @@ h1,h2,h3,h4{margin:0;text-wrap:balance}
 .tgt .setbest{display:block;margin-top:4px;font-size:11px;line-height:1.45;color:var(--muted);font-family:var(--f-num)}
 .sets{display:flex;flex-direction:column;gap:8px}
 .sets .inp label{min-width:38px}
+.set-rm{appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;width:30px;height:30px;font-size:16px;line-height:1;cursor:pointer;flex:none;margin-left:auto}
+.set-add{align-self:flex-start}
 .inp{display:flex;align-items:center;gap:8px}
 .inp label{font-size:12px;color:var(--muted);font-weight:600}
 .inp input{width:84px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font-family:var(--f-num);text-align:right}
@@ -205,7 +192,7 @@ textarea{min-height:64px;resize:vertical}
 .cday .mk{font-size:17px;line-height:1;font-weight:800;height:18px}
 .cday .mk.o{color:var(--p-blue)}
 .cday .mk.x{color:var(--bad)}
-.cday .mk.r{color:var(--line);font-size:13px}
+.cday .mk.r{color:var(--muted);font-size:13px}
 .cday.sel .mk.o,.cday.sel .mk.x{color:inherit}
 .cday .pb{width:70%;height:4px;border-radius:2px;background:var(--surface-2);overflow:hidden}
 .cday .pb i{display:block;height:100%;background:var(--p-green)}
@@ -374,7 +361,7 @@ function loadLocal(){
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.10.11-2';
+const APP_VERSION='2026.10.12-1';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -416,6 +403,17 @@ function customFor(split,prog){
 function defaultsFor(id){
   for(const P of PROGRAMS) for(const s of ORDER) for(const [x,role,sets] of P.days[s]) if(x===id) return [role==='pre'?'main':role,sets];
   return ['main',3];
+}
+// 오늘 세트 수: 직접 늘리거나 줄였으면 그 값, 아니면 루틴 기본값(디로드 주간은 -1)
+function setsFor(id,base){
+  const o=(S.draft.setCount||{})[id];
+  return o!=null?o:(isDeload()?Math.max(1,base-1):base);
+}
+// 임시 입력값을 세트 배열 형태로 맞춰서 돌려준다
+function draftSets(id){
+  const v=S.draft.vals[id]=S.draft.vals[id]||{};
+  if(!v.sets){v.sets=v.w!=null||v.r!=null?[{w:v.w,r:v.r}]:[];delete v.w;delete v.r}
+  return v.sets;
 }
 function draftSet(id,k){
   const v=S.draft.vals[id]||{};
@@ -683,14 +681,15 @@ function exCard(id,role,sets,i){
   const [lo,hi]=repRange(id);
   const reps=ex.type==='sec'?'30~60초':ex.type==='min'?'10~15분':`${lo}~${hi}회${COMPOUND.has(id)?' (최대 12회)':''}`;
   const rest=role==='cardio'?'':role==='arm'?' · 휴식 90초':' · 휴식 60~90초';
-  if(isDeload()) sets=Math.max(1,sets-1);
+  sets=setsFor(id,sets);
   // 세트마다 무게 × 횟수 입력. 빈칸 안의 흐린 숫자는 그 세트의 최고 기록
   const rows=[];
   for(let k=0;k<sets;k++){
     const v=draftSet(id,k),pb=(rec.sets||[])[k];
+    const rm=sets>1?`<button class="set-rm" data-act="rmset" data-id="${id}" data-k="${k}" data-n="${sets}" aria-label="${k+1}세트 삭제">−</button>`:'';
     rows.push(ex.type==='w'
-      ?`<div class="inp"><label for="w-${id}-${k}">${k+1}세트</label><input id="w-${id}-${k}" data-val="${id}" data-s="${k}" data-f="w" type="number" inputmode="decimal" step="any" placeholder="${pb?+pb.w:''}kg" value="${esc(v.w??'')}"><span class="x">×</span><input id="r-${id}-${k}" data-val="${id}" data-s="${k}" data-f="r" type="number" inputmode="numeric" placeholder="${pb?pb.r:''}회" value="${esc(v.r??'')}"></div>`
-      :`<div class="inp"><label for="r-${id}-${k}">${sets>1?`${k+1}세트`:ex.type==='sec'?'버틴 시간':ex.type==='min'?'운동 시간':'횟수'}</label><input id="r-${id}-${k}" data-val="${id}" data-s="${k}" data-f="r" type="number" inputmode="numeric" placeholder="${pb?pb.r:''}${unit(ex)}" value="${esc(v.r??'')}"></div>`);
+      ?`<div class="inp"><label for="w-${id}-${k}">${k+1}세트</label><input id="w-${id}-${k}" data-val="${id}" data-s="${k}" data-f="w" type="number" inputmode="decimal" step="any" placeholder="${pb?+pb.w:''}kg" value="${esc(v.w??'')}"><span class="x">×</span><input id="r-${id}-${k}" data-val="${id}" data-s="${k}" data-f="r" type="number" inputmode="numeric" placeholder="${pb?pb.r:''}회" value="${esc(v.r??'')}">${rm}</div>`
+      :`<div class="inp"><label for="r-${id}-${k}">${sets>1?`${k+1}세트`:ex.type==='sec'?'버틴 시간':ex.type==='min'?'운동 시간':'횟수'}</label><input id="r-${id}-${k}" data-val="${id}" data-s="${k}" data-f="r" type="number" inputmode="numeric" placeholder="${pb?pb.r:''}${unit(ex)}" value="${esc(v.r??'')}">${rm}</div>`);
   }
   const stall=(rec.stall||0)>=2&&rec.best?`<div class="stall">${rec.stall}회 연속 갱신 실패 → 이전 기록 ${fmt(ex,rec.best)}으로 반복하세요.</div>`:'';
   const perSet=setBestsText(ex,rec);
@@ -698,7 +697,7 @@ function exCard(id,role,sets,i){
     <div class="ex-head"><span class="ex-idx">${i}</span><h4>${esc(ex.n)}</h4><span class="role ${role}">${ROLE[role]}</span><button class="ex-rm" data-act="rmex" data-id="${id}" aria-label="${esc(ex.n)} 빼기">✕</button></div>
     <div class="ex-meta">${EQ[ex.eq]} · ${sets}세트 · ${reps}${rest}${ex.arm||COMPOUND.has(id)?' · 12회 성공 시 증량':''}</div>
     <div class="tgt"><div><small>최고 기록</small><b>${fmt(ex,rec.best)}</b>${perSet?`<span class="setbest">${perSet}</span>`:''}</div><div class="goal"><small>${isDeload()?'디로드':'오늘 목표'}</small><b>${target(id)}</b></div></div>
-    ${stall}<div class="sets">${rows.join('')}</div>
+    ${stall}<div class="sets">${rows.join('')}${sets<10?`<button class="btn sm ghost set-add" data-act="addset" data-id="${id}" data-n="${sets}">+ 세트 추가</button>`:''}</div>
     <div class="tip">${esc(ex.tip)}</div>
   </article>`;
 }
@@ -948,6 +947,16 @@ document.addEventListener('click',async e=>{
   if(act==='applyadj'){const t=weightTrend();S.profile.kcalAdj=(S.profile.kcalAdj||0)+Number(b.dataset.d);S.profile.adjAt=t?t.last.date:today();persist('profile',S.profile);render();toast(`목표 칼로리 ${targets().kcal}kcal로 조정했어요`);return}
   if(act==='dismissadj'){const t=weightTrend();S.profile.adjAt=t?t.last.date:today();persist('profile',S.profile);render();return}
   if(act==='resetadj'){S.profile.kcalAdj=0;persist('profile',S.profile);render();return}
+  if(act==='addset'){
+    const id=b.dataset.id,n=+b.dataset.n;
+    (S.draft.setCount=S.draft.setCount||{})[id]=Math.min(10,n+1);S.draft.date=today();saveDraft();render();return;
+  }
+  if(act==='rmset'){
+    // 그 세트의 입력값을 지우고 아래 세트들을 한 칸씩 올린다
+    const id=b.dataset.id,k=+b.dataset.k,n=+b.dataset.n,arr=draftSets(id);
+    if(k<arr.length) arr.splice(k,1);
+    (S.draft.setCount=S.draft.setCount||{})[id]=Math.max(1,n-1);S.draft.date=today();saveDraft();render();return;
+  }
   if(act==='rmex'){
     const {split,prog}=S.curPlan,c=customFor(split,prog),id=b.dataset.id,ai=c.added.findIndex(([x])=>x===id);
     if(ai>=0) c.added.splice(ai,1);else if(!c.removed.includes(id)) c.removed.push(id);
@@ -1065,7 +1074,7 @@ function finishSession(split,prog,makeup){
   const plan=effectivePlan(split,prog);
   for(const [id] of plan) before[id]=S.records[id]?JSON.parse(JSON.stringify(S.records[id])):null;
   for(const [id,,n] of plan){
-    const ex=EX[id],cnt=deload?Math.max(1,n-1):n,sets=[];
+    const ex=EX[id],cnt=setsFor(id,n),sets=[];
     for(let k=0;k<cnt;k++){
       const v=draftSet(id,k),w=parseFloat(v.w),r=parseInt(v.r,10);
       sets.push((ex.type==='w'?w>0&&r>0:r>0)?{w:ex.type==='w'?w:0,r}:null);
@@ -1076,7 +1085,7 @@ function finishSession(split,prog,makeup){
     else results.push(evaluate(id,sets,d));
   }
   const wasEditing=!!S.editing;S.editing=null;
-  S.log.push({date:d,split,prog,makeup,deload,results,before,plan:plan.map(x=>[...x])});
+  S.log.push({date:d,split,prog,makeup,deload,results,before,plan:plan.map(([id,role,n])=>[id,role,setsFor(id,n)])});
   S.adding=false;
   if(S.log.length>400) S.log=S.log.slice(-400);
   S.draft={date:d,vals:{},checks:{}};saveDraft();
@@ -1114,6 +1123,7 @@ function startEdit(){
   for(const r of entry.results){
     const sets=r.sets||[{w:r.w,r:r.r}];
     S.draft.vals[r.id]={sets:sets.map(x=>x?{w:EX[r.id].type==='w'?String(x.w):'',r:String(x.r)}:{})};
+    (S.draft.setCount=S.draft.setCount||{})[r.id]=sets.length;
   }
   S.confirm=null;render();
 }
