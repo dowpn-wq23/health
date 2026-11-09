@@ -325,8 +325,16 @@ const label=s=>{const d=parse(s);return `${d.getMonth()+1}월 ${d.getDate()}일 
 /* ---------- 저장소: claude db → 없으면 이 기기 localStorage ---------- */
 const LS={
   get(k){try{const v=localStorage.getItem('plate:'+k);return v?JSON.parse(v):null}catch(e){return null}},
-  set(k,v){try{localStorage.setItem('plate:'+k,JSON.stringify(v))}catch(e){}}
+  set(k,v){try{localStorage.setItem('plate:'+k,JSON.stringify(v));return true}catch(e){console.warn('ls',k,e);storageFailed();return false}},
+  del(k){try{localStorage.removeItem('plate:'+k)}catch(e){}}
 };
+// 기기 저장이 실패하면(저장 공간 부족 등) 화면에는 바뀐 것처럼 보여도 앱을 다시 열면 사라지므로 바로 알린다
+let lsWarnAt=0;
+function storageFailed(){
+  if(Date.now()-lsWarnAt<5000) return;
+  lsWarnAt=Date.now();
+  toast('이 기기에 저장하지 못했어요. 저장 공간이 가득 찼을 수 있어요. 설정에서 백업한 뒤 사진이 있는 오래된 식단 기록을 지워주세요.');
+}
 let DB=null,UID=null,SAMPLE=null,IMG_OK=false;
 const queues={};
 function persist(key,val){
@@ -362,7 +370,7 @@ function loadLocal(){
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.11.09-1';
+const APP_VERSION='2026.11.09-2';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -1045,7 +1053,7 @@ document.addEventListener('click',async e=>{
   if(act==='export'){exportBackup();return}
   if(act==='reset'){
     if(S.confirm!=='reset'){armConfirm('reset');render();return}
-    S.confirm=null;S.editing=null;S.records={};S.log=[];S.profile.since=today();persist('records',S.records);persist('log',S.log);persist('profile',S.profile);render();toast('운동 기록을 초기화했어요');return;
+    S.confirm=null;S.editing=null;LS.del('editing');S.records={};S.log=[];S.profile.since=today();persist('records',S.records);persist('log',S.log);persist('profile',S.profile);render();toast('운동 기록을 초기화했어요');return;
   }
 });
 document.addEventListener('input',e=>{
@@ -1111,7 +1119,7 @@ function finishSession(split,prog,makeup){
   saveSetPrefs(key,plan);
   S.adding=false;
   if(S.log.length>400) S.log=S.log.slice(-400);
-  S.draft={date:d,vals:{},checks:{}};saveDraft();
+  S.draft={date:d,vals:{},checks:{}};saveDraft();LS.del('editing');
   S.forceTrain=false;
   persist('log',S.log);persist('records',S.records);
   render();window.scrollTo(0,0);
@@ -1127,12 +1135,13 @@ function rebuildRecords(ids,log){
     for(const r of e.results) if(ids.includes(r.id)) evaluate(r.id,r.sets||[{w:r.w,r:r.r}],e.date);
   }
 }
-function startEdit(){
+// resume: 앱이 수정 도중 다시 열렸을 때, 고치던 입력값(draft)과 수정 전 입력값(prev)으로 이어서 수정
+function startEdit(resume){
   let idx=-1;for(let i=S.log.length-1;i>=0;i--) if(S.log[i].date===today()){idx=i;break}
   if(idx<0) return;
   const entry=S.log[idx];
-  // 취소하면 그대로 되돌릴 수 있게 지금 상태를 보관 (수정 저장 전까지는 기기에 저장하지 않음)
-  S.editing={entry,idx,records:JSON.parse(JSON.stringify(S.records)),draft:S.draft};
+  // 취소하면 그대로 되돌릴 수 있게 지금 상태를 보관 (수정 저장 전까지는 운동 기록에 반영하지 않음)
+  S.editing={entry,idx,records:JSON.parse(JSON.stringify(S.records)),draft:resume?resume.prev:S.draft};
   S.log.splice(idx,1);
   if(entry.before){for(const [id,v] of Object.entries(entry.before)){if(v) S.records[id]=JSON.parse(JSON.stringify(v));else delete S.records[id]}}
   // 그날의 운동 구성 (예전 기록은 기본 루틴 + 기록된 운동)
@@ -1148,11 +1157,22 @@ function startEdit(){
     S.draft.vals[r.id]={sets:sets.map(x=>x?{w:EX[r.id].type==='w'?String(x.w):'',r:String(x.r)}:{})};
     (S.draft.setCount=S.draft.setCount||{})[r.id]=sets.length;
   }
+  // 수정 중이라는 표시와 입력값을 기기에 남겨서, 앱이 새로 열려도(백그라운드 종료·업데이트) 수정한 값이 사라지지 않게
+  if(resume&&resume.draft) S.draft=resume.draft;
+  else{saveDraft();LS.set('editing',{date:today(),prev:S.editing.draft})}
   S.confirm=null;render();
+}
+function resumeEdit(){
+  const ed=LS.get('editing');
+  if(!ed) return;
+  if(ed.date!==today()||!doneOn(today())){LS.del('editing');return}
+  const d=LS.get('draft');
+  startEdit({draft:d&&d.date===today()?Object.assign({vals:{},checks:{}},d):null,prev:ed.prev||{date:today(),vals:{},checks:{}}});
 }
 function cancelEdit(){
   const ed=S.editing;if(!ed) return;
   S.log.splice(ed.idx,0,ed.entry);S.records=ed.records;S.draft=ed.draft;S.editing=null;S.confirm=null;S.adding=false;
+  saveDraft();LS.del('editing');
   render();toast('원래 기록을 유지했어요');
 }
 
@@ -1492,7 +1512,7 @@ async function importBackup(file){
 }
 
 /* ---------- 시작 ---------- */
-loadLocal();render();setSync();connect();
+loadLocal();resumeEdit();render();setSync();connect();
 // 오프라인 실행용 서비스 워커
 if('serviceWorker' in navigator){
   // 새 버전이 설치되면 한 번만 자동으로 새로고침
