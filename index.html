@@ -325,8 +325,16 @@ const label=s=>{const d=parse(s);return `${d.getMonth()+1}월 ${d.getDate()}일 
 /* ---------- 저장소: claude db → 없으면 이 기기 localStorage ---------- */
 const LS={
   get(k){try{const v=localStorage.getItem('plate:'+k);return v?JSON.parse(v):null}catch(e){return null}},
-  set(k,v){try{localStorage.setItem('plate:'+k,JSON.stringify(v))}catch(e){}}
+  set(k,v){try{localStorage.setItem('plate:'+k,JSON.stringify(v));return true}catch(e){console.warn('ls',k,e);storageFailed();return false}},
+  del(k){try{localStorage.removeItem('plate:'+k)}catch(e){}}
 };
+// 기기 저장이 실패하면(저장 공간 부족 등) 화면에는 바뀐 것처럼 보여도 앱을 다시 열면 사라지므로 바로 알린다
+let lsWarnAt=0;
+function storageFailed(){
+  if(Date.now()-lsWarnAt<5000) return;
+  lsWarnAt=Date.now();
+  toast('이 기기에 저장하지 못했어요. 저장 공간이 가득 찼을 수 있어요. 설정에서 백업한 뒤 사진이 있는 오래된 식단 기록을 지워주세요.');
+}
 let DB=null,UID=null,SAMPLE=null,IMG_OK=false;
 const queues={};
 function persist(key,val){
@@ -347,7 +355,7 @@ async function dbGet(key){
 /* ---------- 상태 ---------- */
 const defaultProfile=()=>({weight:70,height:175,age:30,sex:'m',activity:1.55,goal:'lean',pmult:2.0,cycleWeeks:6,progStart:today(),progBase:0,machineStep:5,since:today(),configured:false,kcalAdj:0,adjAt:null});
 const KEYS=['profile','records','log','weights','skips'];
-const S={tab:'today',profile:defaultProfile(),records:{},log:[],weights:[],skips:[],meals:{},mealDate:today(),draft:{date:today(),vals:{},checks:{}},forceTrain:false,confirm:null,photo:null,photoUrl:null,analysis:null,busy:false,status:'',customEx:{},adding:false};
+const S={tab:'today',profile:defaultProfile(),records:{},log:[],weights:[],skips:[],meals:{},mealDate:today(),draft:{date:today(),vals:{},checks:{}},forceTrain:false,confirm:null,photo:null,photoUrl:null,analysis:null,busy:false,status:'',customEx:{},setPrefs:{},adding:false};
 
 function loadLocal(){
   S.profile=Object.assign(defaultProfile(),LS.get('profile')||{});
@@ -356,12 +364,13 @@ function loadLocal(){
   S.weights=LS.get('weights')||[];
   S.skips=LS.get('skips')||[];
   S.customEx=LS.get('customEx')||{};Object.assign(EX,S.customEx);
+  S.setPrefs=LS.get('setPrefs')||{};
   const d=LS.get('draft');
   if(d&&d.date===today()) S.draft=Object.assign({vals:{},checks:{}},d);
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.10.12-1';
+const APP_VERSION='2026.11.09-2';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -404,10 +413,31 @@ function defaultsFor(id){
   for(const P of PROGRAMS) for(const s of ORDER) for(const [x,role,sets] of P.days[s]) if(x===id) return [role==='pre'?'main':role,sets];
   return ['main',3];
 }
-// 오늘 세트 수: 직접 늘리거나 줄였으면 그 값, 아니면 루틴 기본값(디로드 주간은 -1)
-function setsFor(id,base){
+// 루틴별로 기억해 둔 세트 수: 세트를 늘리거나 줄이고 저장하면 다음 같은 루틴에도 그 세트 수로 나온다
+function routineSets(key,id,base){
+  const n=(S.setPrefs[key]||{})[id];
+  return n!=null?n:base;
+}
+// 오늘 세트 수: 오늘 직접 늘리거나 줄였으면 그 값, 아니면 기억해 둔 루틴 세트 수(디로드 주간은 -1)
+function setsFor(id,base,key){
   const o=(S.draft.setCount||{})[id];
-  return o!=null?o:(isDeload()?Math.max(1,base-1):base);
+  if(o!=null) return o;
+  const n=routineSets(key,id,base);
+  return isDeload()?Math.max(1,n-1):n;
+}
+// 저장할 때 오늘 직접 바꾼 세트 수를 그 루틴의 세트 수로 기억
+function saveSetPrefs(key,plan){
+  const sc=S.draft.setCount||{},m=Object.assign({},S.setPrefs[key]);
+  let changed=false;
+  for(const [id,,base] of plan){
+    if(sc[id]==null) continue;
+    const n=Math.max(1,Math.min(10,sc[id]));
+    if(n===base) delete m[id];else m[id]=n;
+    changed=true;
+  }
+  if(!changed) return;
+  if(Object.keys(m).length) S.setPrefs[key]=m;else delete S.setPrefs[key];
+  persist('setPrefs',S.setPrefs);
 }
 // 임시 입력값을 세트 배열 형태로 맞춰서 돌려준다
 function draftSets(id){
@@ -650,7 +680,7 @@ function sessionView(split,prog,st){
     ${exs}
     ${removed}
     ${addPanel(split,prog,plan)}
-    <p class="small muted" style="margin:0">세트마다 무게와 횟수를 적으세요. 빈칸의 흐린 숫자는 그 세트의 최고 기록이에요. 어느 세트든 기록을 넘기면 신기록으로 저장되고, 못 넘기면 이전 기록이 유지됩니다.</p>
+    <p class="small muted" style="margin:0">세트마다 무게와 횟수를 적으세요. 세트를 늘리거나 줄이고 저장하면 다음 같은 루틴에도 그 세트 수로 나와요. 빈칸의 흐린 숫자는 그 세트의 최고 기록이에요. 어느 세트든 기록을 넘기면 신기록으로 저장되고, 못 넘기면 이전 기록이 유지됩니다.</p>
     <button class="btn" data-act="finish" data-split="${split}" data-prog="${prog}" data-makeup="${st.kind==='makeup'?1:0}">${conf?'한 번 더 누르면 저장됩니다':editing?'수정 저장':'운동 완료 · 기록 저장'}</button>
     ${editing?'<button class="btn ghost" data-act="canceledit">수정 취소 · 원래 기록 유지</button>'
       :'<button class="btn ghost" data-act="skip">오늘은 못 해요 (회식 등) · 내일로 미루기</button>'}
@@ -681,7 +711,7 @@ function exCard(id,role,sets,i){
   const [lo,hi]=repRange(id);
   const reps=ex.type==='sec'?'30~60초':ex.type==='min'?'10~15분':`${lo}~${hi}회${COMPOUND.has(id)?' (최대 12회)':''}`;
   const rest=role==='cardio'?'':role==='arm'?' · 휴식 90초':' · 휴식 60~90초';
-  sets=setsFor(id,sets);
+  sets=setsFor(id,sets,planKey(S.curPlan.split,S.curPlan.prog));
   // 세트마다 무게 × 횟수 입력. 빈칸 안의 흐린 숫자는 그 세트의 최고 기록
   const rows=[];
   for(let k=0;k<sets;k++){
@@ -776,7 +806,7 @@ function vRoutine(){
   const pi=progInfo(today());
   const sched=[1,2,3,4,5,6,0].map(d=>`<div class="${isRest(d)?'rest':''}"><b>${DOW[d]}</b><br>${isRest(d)?'휴식·보충':'운동'}</div>`).join('');
   const progs=PROGRAMS.map((P,k)=>`<div class="card prog"><div class="sec-title"><h3>${P.name}</h3>${k===pi.idx?`<span class="chip dot" style="--c:var(--ok)">진행 중 · ${pi.week}주차</span>`:`<span class="small muted">${k===(pi.idx+1)%PROGRAMS.length?label(pi.nextSwitch)+' 시작':''}</span>`}</div>
-    ${ORDER.map(s=>`<div class="prog-day"><h4><span class="chip dot" style="--c:${SPLITS[s].c}">${SPLITS[s].name}</span></h4><ol>${P.days[s].map(([id,role])=>`<li><span>${esc(EX[id].n)}</span> · ${ROLE[role]}</li>`).join('')}</ol></div>`).join('')}</div>`).join('');
+    ${ORDER.map(s=>`<div class="prog-day"><h4><span class="chip dot" style="--c:${SPLITS[s].c}">${SPLITS[s].name}</span></h4><ol>${P.days[s].map(([id,role,n])=>`<li><span>${esc(EX[id].n)}</span> · ${ROLE[role]} · ${routineSets(planKey(s,k),id,n)}세트</li>`).join('')}</ol></div>`).join('')}</div>`).join('');
   return `<div class="h-date"><h1>루틴</h1><span class="small muted">다음 교체 ${label(pi.nextSwitch)}</span></div>
   <div class="card stack"><h3 style="font-size:16px">주간 일정</h3><div class="sched">${sched}</div>
   <p class="small muted" style="margin:0">운동일에는 가슴 → 등 → 어깨+하체 순서로 이어갑니다. 운동을 못 한 날이 있으면 그 주 수·금요일에 보충합니다.</p></div>
@@ -1023,7 +1053,7 @@ document.addEventListener('click',async e=>{
   if(act==='export'){exportBackup();return}
   if(act==='reset'){
     if(S.confirm!=='reset'){armConfirm('reset');render();return}
-    S.confirm=null;S.editing=null;S.records={};S.log=[];S.profile.since=today();persist('records',S.records);persist('log',S.log);persist('profile',S.profile);render();toast('운동 기록을 초기화했어요');return;
+    S.confirm=null;S.editing=null;LS.del('editing');S.records={};S.log=[];S.profile.since=today();persist('records',S.records);persist('log',S.log);persist('profile',S.profile);render();toast('운동 기록을 초기화했어요');return;
   }
 });
 document.addEventListener('input',e=>{
@@ -1071,10 +1101,10 @@ document.addEventListener('change',async e=>{
 function finishSession(split,prog,makeup){
   const d=today(),results=[],deload=isDeload(),before={};
   // 나중에 이 기록을 수정할 수 있도록, 바뀌기 전 최고 기록을 같이 저장
-  const plan=effectivePlan(split,prog);
+  const plan=effectivePlan(split,prog),key=planKey(split,prog);
   for(const [id] of plan) before[id]=S.records[id]?JSON.parse(JSON.stringify(S.records[id])):null;
   for(const [id,,n] of plan){
-    const ex=EX[id],cnt=setsFor(id,n),sets=[];
+    const ex=EX[id],cnt=setsFor(id,n,key),sets=[];
     for(let k=0;k<cnt;k++){
       const v=draftSet(id,k),w=parseFloat(v.w),r=parseInt(v.r,10);
       sets.push((ex.type==='w'?w>0&&r>0:r>0)?{w:ex.type==='w'?w:0,r}:null);
@@ -1085,10 +1115,11 @@ function finishSession(split,prog,makeup){
     else results.push(evaluate(id,sets,d));
   }
   const wasEditing=!!S.editing;S.editing=null;
-  S.log.push({date:d,split,prog,makeup,deload,results,before,plan:plan.map(([id,role,n])=>[id,role,setsFor(id,n)])});
+  S.log.push({date:d,split,prog,makeup,deload,results,before,plan:plan.map(([id,role,n])=>[id,role,setsFor(id,n,key)])});
+  saveSetPrefs(key,plan);
   S.adding=false;
   if(S.log.length>400) S.log=S.log.slice(-400);
-  S.draft={date:d,vals:{},checks:{}};saveDraft();
+  S.draft={date:d,vals:{},checks:{}};saveDraft();LS.del('editing');
   S.forceTrain=false;
   persist('log',S.log);persist('records',S.records);
   render();window.scrollTo(0,0);
@@ -1104,12 +1135,13 @@ function rebuildRecords(ids,log){
     for(const r of e.results) if(ids.includes(r.id)) evaluate(r.id,r.sets||[{w:r.w,r:r.r}],e.date);
   }
 }
-function startEdit(){
+// resume: 앱이 수정 도중 다시 열렸을 때, 고치던 입력값(draft)과 수정 전 입력값(prev)으로 이어서 수정
+function startEdit(resume){
   let idx=-1;for(let i=S.log.length-1;i>=0;i--) if(S.log[i].date===today()){idx=i;break}
   if(idx<0) return;
   const entry=S.log[idx];
-  // 취소하면 그대로 되돌릴 수 있게 지금 상태를 보관 (수정 저장 전까지는 기기에 저장하지 않음)
-  S.editing={entry,idx,records:JSON.parse(JSON.stringify(S.records)),draft:S.draft};
+  // 취소하면 그대로 되돌릴 수 있게 지금 상태를 보관 (수정 저장 전까지는 운동 기록에 반영하지 않음)
+  S.editing={entry,idx,records:JSON.parse(JSON.stringify(S.records)),draft:resume?resume.prev:S.draft};
   S.log.splice(idx,1);
   if(entry.before){for(const [id,v] of Object.entries(entry.before)){if(v) S.records[id]=JSON.parse(JSON.stringify(v));else delete S.records[id]}}
   // 그날의 운동 구성 (예전 기록은 기본 루틴 + 기록된 운동)
@@ -1125,11 +1157,22 @@ function startEdit(){
     S.draft.vals[r.id]={sets:sets.map(x=>x?{w:EX[r.id].type==='w'?String(x.w):'',r:String(x.r)}:{})};
     (S.draft.setCount=S.draft.setCount||{})[r.id]=sets.length;
   }
+  // 수정 중이라는 표시와 입력값을 기기에 남겨서, 앱이 새로 열려도(백그라운드 종료·업데이트) 수정한 값이 사라지지 않게
+  if(resume&&resume.draft) S.draft=resume.draft;
+  else{saveDraft();LS.set('editing',{date:today(),prev:S.editing.draft})}
   S.confirm=null;render();
+}
+function resumeEdit(){
+  const ed=LS.get('editing');
+  if(!ed) return;
+  if(ed.date!==today()||!doneOn(today())){LS.del('editing');return}
+  const d=LS.get('draft');
+  startEdit({draft:d&&d.date===today()?Object.assign({vals:{},checks:{}},d):null,prev:ed.prev||{date:today(),vals:{},checks:{}}});
 }
 function cancelEdit(){
   const ed=S.editing;if(!ed) return;
   S.log.splice(ed.idx,0,ed.entry);S.records=ed.records;S.draft=ed.draft;S.editing=null;S.confirm=null;S.adding=false;
+  saveDraft();LS.del('editing');
   render();toast('원래 기록을 유지했어요');
 }
 
@@ -1469,7 +1512,7 @@ async function importBackup(file){
 }
 
 /* ---------- 시작 ---------- */
-loadLocal();render();setSync();connect();
+loadLocal();resumeEdit();render();setSync();connect();
 // 오프라인 실행용 서비스 워커
 if('serviceWorker' in navigator){
   // 새 버전이 설치되면 한 번만 자동으로 새로고침
