@@ -370,7 +370,7 @@ function loadLocal(){
   const m=LS.get('meals-'+today()); if(m) S.meals[today()]=m;
 }
 // 독립 실행(설치형 웹앱): 모든 기록은 이 기기에 저장. 사진 분석만 인터넷(Wi-Fi/LTE) 사용.
-const APP_VERSION='2026.11.09-2';
+const APP_VERSION='2026.11.09-3';
 const KEY_STORE='plate-secret:gemini-key';
 const apiKey=()=>{try{return localStorage.getItem(KEY_STORE)||''}catch(e){return ''}};
 async function connect(){
@@ -418,20 +418,24 @@ function routineSets(key,id,base){
   const n=(S.setPrefs[key]||{})[id];
   return n!=null?n:base;
 }
-// 오늘 세트 수: 오늘 직접 늘리거나 줄였으면 그 값, 아니면 기억해 둔 루틴 세트 수(디로드 주간은 -1)
-function setsFor(id,base,key){
-  const o=(S.draft.setCount||{})[id];
-  if(o!=null) return o;
+// 루틴대로 나오는 오늘 세트 수 (기억해 둔 세트 수, 디로드 주간은 -1)
+function defaultSets(key,id,base){
   const n=routineSets(key,id,base);
   return isDeload()?Math.max(1,n-1):n;
 }
-// 저장할 때 오늘 직접 바꾼 세트 수를 그 루틴의 세트 수로 기억
+// 오늘 세트 수: 오늘 직접 늘리거나 줄였으면 그 값, 아니면 루틴대로
+function setsFor(id,base,key){
+  const o=(S.draft.setCount||{})[id];
+  return o!=null?o:defaultSets(key,id,base);
+}
+// 저장할 때 루틴대로 나온 수에서 바꾼 세트 수를 그 루틴의 세트 수로 기억.
+// 기억하는 값은 평소 주 기준이라, 디로드 주간(-1)에 바꾼 값은 +1 해서 기억한다 → 다음 디로드 주간에도 바꾼 수 그대로 나온다
 function saveSetPrefs(key,plan){
-  const sc=S.draft.setCount||{},m=Object.assign({},S.setPrefs[key]);
+  const sc=S.draft.setCount||{},m=Object.assign({},S.setPrefs[key]),dl=isDeload();
   let changed=false;
   for(const [id,,base] of plan){
-    if(sc[id]==null) continue;
-    const n=Math.max(1,Math.min(10,sc[id]));
+    if(sc[id]==null||sc[id]===defaultSets(key,id,base)) continue;
+    const n=Math.max(1,Math.min(10,sc[id]+(dl?1:0)));
     if(n===base) delete m[id];else m[id]=n;
     changed=true;
   }
@@ -1152,6 +1156,8 @@ function startEdit(resume){
   S.draft={date:today(),vals:{},checks:{},custom:{key:planKey(entry.split,entry.prog),
     removed:base.map(([id])=>id).filter(id=>!plan.some(([x])=>x===id)),
     added:plan.filter(([id])=>!base.some(([x])=>x===id))}};
+  // 저장했던 세트 수를 값을 안 적은 운동까지 그대로 (예전 기록은 plan에 세트 수가 없을 수 있음)
+  if(entry.plan) for(const [id,,n] of entry.plan) if(n!=null) (S.draft.setCount=S.draft.setCount||{})[id]=n;
   for(const r of entry.results){
     const sets=r.sets||[{w:r.w,r:r.r}];
     S.draft.vals[r.id]={sets:sets.map(x=>x?{w:EX[r.id].type==='w'?String(x.w):'',r:String(x.r)}:{})};
